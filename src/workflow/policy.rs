@@ -25,6 +25,17 @@ pub enum ToolScope {
     Selected(Vec<String>),
 }
 
+impl ToolScope {
+    /// Whether this scope lets a stage call the named tool.
+    pub fn allows(&self, name: &str) -> bool {
+        match self {
+            ToolScope::None => false,
+            ToolScope::All => true,
+            ToolScope::Selected(names) => names.iter().any(|n| n.eq_ignore_ascii_case(name)),
+        }
+    }
+}
+
 /// Policy for handling failures when executing parallel stages concurrently.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ParallelPolicy {

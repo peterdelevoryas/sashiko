@@ -2369,6 +2369,20 @@ fn default_worker_command() -> Result<Command> {
     Ok(c)
 }
 
+/// The environment variables holding MCP server tokens
+/// (`mcp.servers[].bearer_token_env`) that are set, with their values.
+fn mcp_token_env(settings: &Settings) -> Vec<(String, String)> {
+    let mut vars = Vec::new();
+    for server in &settings.mcp.servers {
+        if let Some(var) = &server.bearer_token_env
+            && let Ok(value) = std::env::var(var)
+        {
+            vars.push((var.clone(), value));
+        }
+    }
+    vars
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn run_review_tool_with_cmd(
     mut cmd: Command,
@@ -2437,6 +2451,12 @@ async fn run_review_tool_with_cmd(
         if key.starts_with("SASHIKO_") {
             cmd.env(&key, &value);
         }
+    }
+
+    // The worker discovers MCP tools itself, so it needs each server's
+    // token. Only the variables the settings name are forwarded.
+    for (var, value) in mcp_token_env(settings) {
+        cmd.env(var, value);
     }
 
     if let Some(idx) = review_index {
@@ -5296,5 +5316,33 @@ inline review content 4\n\n-- \nSashiko AI review · https://sashiko.dev/#/patch
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn test_worker_gets_only_the_mcp_tokens_settings_name() {
+        // A variable name no other test uses, so setting it is harmless.
+        const VAR: &str = "SASHIKO_TEST_ONLY_MCP_TOKEN_FORWARDING";
+        // SAFETY: no other code reads or writes this variable.
+        unsafe { std::env::set_var(VAR, "t0ken") };
+        let mut settings = Settings::new().unwrap();
+        let server = |name: &str, var: Option<&str>| crate::settings::McpServerSettings {
+            name: name.to_string(),
+            url: "https://mcp.example.com/mcp".to_string(),
+            bearer_token_env: var.map(str::to_string),
+            allowed_tools: vec!["search".to_string()],
+            stages: vec!["hardware".to_string()],
+            prompt_hint: None,
+            timeout_secs: 30,
+            max_output_bytes: 1024,
+        };
+        settings.mcp.servers = vec![
+            server("a", Some(VAR)),
+            server("b", None),
+            server("c", Some("SASHIKO_TEST_ONLY_MCP_TOKEN_UNSET")),
+        ];
+        assert_eq!(
+            mcp_token_env(&settings),
+            vec![(VAR.to_string(), "t0ken".to_string())]
+        );
     }
 }
